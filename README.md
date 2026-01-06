@@ -1,5 +1,8 @@
 🚛 Nexus GatePass: Smart National Logistics Verification
+
+
 Project Overview
+
 Nexus GatePass is a high-security, automated verification system designed to streamline interstate logistics checkpoints. By combining AI-driven document compliance with a proprietary "Double-Lock" QR Protocol, we eliminate manual paperwork and prevent unauthorized data access at tolls and police checkpoints.
 
 🛡️ The "Double-Lock" Security Protocol
@@ -30,7 +33,6 @@ Mobile App: React Native (Expo) — Encrypted scanner for law enforcement
 Styling: Tailwind CSS & Framer Motion — High-performance, cinematic UI
 
 📂 Project Structure
-Plaintext
 
 Nexus-Logistics/
 ├── backend/            # Python FastAPI Server
