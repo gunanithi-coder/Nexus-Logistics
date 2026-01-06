@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+motor
+python-multipart
+pyjwt
+qrcode[pil]
+requests
+cryptography
+python-dotenv
