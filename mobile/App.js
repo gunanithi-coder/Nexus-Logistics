@@ -1,81 +1,70 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, View, Button, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
-import { BarCodeScanner } from 'expo-barcode-scanner';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import axios from 'axios';
 
-// ⚠️ STEP 1: PASTE YOUR BACKEND URL HERE (Remove any trailing slash '/')
-// Example: 'https://humble-guacamole-7vp7rg4w56rw2pxrw-8000.app.github.dev'
+// ⚠️ PASTE YOUR BACKEND URL HERE
 const API_URL = 'https://humble-guacamole-7vp7rg4w56rw2pxrw-8000.app.github.dev'; 
-
 const POLICE_SECRET = "POLICE_ACCESS_TOKEN_2026";
 
 export default function App() {
-  const [hasPermission, setHasPermission] = useState(null);
+  const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [scanData, setScanData] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const getBarCodeScannerPermissions = async () => {
-      const { status } = await BarCodeScanner.requestPermissionsAsync();
-      setHasPermission(status === 'granted');
-    };
-    getBarCodeScannerPermissions();
-  }, []);
+  // Handle Permissions
+  if (!permission) {
+    return <View style={styles.container}><Text style={{color:'white'}}>Requesting Camera...</Text></View>;
+  }
+  if (!permission.granted) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ color: 'white', marginBottom: 10, textAlign:'center' }}>Police Permission Required</Text>
+        <Button onPress={requestPermission} title="Grant Camera Access" color="#FF6600" />
+      </View>
+    );
+  }
 
   const handleBarCodeScanned = async ({ type, data }) => {
+    if (scanned) return;
     setScanned(true);
     setLoading(true);
 
     try {
-      // 🔒 THE DOUBLE-LOCK HANDSHAKE
-      console.log("Scanning Token:", data); // Debug log
+      console.log("Scanning Token:", data); 
       const response = await axios.post(
         `${API_URL}/verify_qr`,
         { token: data }, 
         { headers: { 'x-police-auth': POLICE_SECRET } }
       );
-
       setScanData(response.data);
     } catch (error) {
       console.error("Scan Error:", error);
-      if (error.response && error.response.status === 403) {
-        // Use window.alert for Web, Alert.alert for Mobile
-        if (Platform.OS === 'web') {
-           alert("🚨 SECURITY ALERT: Unauthorized Device Detected!");
-        } else {
-           Alert.alert("🚨 SECURITY ALERT", "Unauthorized Device Detected!");
-        }
-      } else {
-        if (Platform.OS === 'web') {
-           alert("⚠️ INVALID PASS: Fake or Expired.");
-        } else {
-           Alert.alert("⚠️ INVALID PASS", "This QR Code is Fake or Expired.");
-        }
-      }
+      Alert.alert("⚠️ INVALID PASS", "Fake or Expired QR Code detected.");
       setScanData(null);
+      setScanned(false); // Auto-reset on error
     } finally {
       setLoading(false);
     }
   };
 
-  if (hasPermission === null) return <Text style={{color:'#fff'}}>Requesting camera permission...</Text>;
-  if (hasPermission === false) return <Text style={{color:'#fff'}}>No access to camera</Text>;
-
   return (
     <View style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>NEXUS ENFORCER</Text>
         <Text style={styles.headerSub}>👮 POLICE USE ONLY</Text>
       </View>
 
-      {/* CAMERA VIEWFINDER */}
       {!scanData ? (
         <View style={styles.cameraContainer}>
-          <BarCodeScanner
-            onBarCodeScanned={scanned ? undefined : handleBarCodeScanned}
+          <CameraView
             style={StyleSheet.absoluteFillObject}
+            facing="back"
+            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ["qr"],
+            }}
           />
           <View style={styles.overlay}>
             <View style={styles.scanFrame} />
@@ -84,26 +73,11 @@ export default function App() {
           {loading && <ActivityIndicator size="large" color="#FF6600" style={styles.loader} />}
         </View>
       ) : (
-        // VERIFIED RESULT SCREEN
         <View style={styles.resultCard}>
           <Text style={styles.statusApproved}>✅ VERIFIED LEGAL</Text>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>DRIVER:</Text>
-            <Text style={styles.value}>{scanData.driver}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>VEHICLE:</Text>
-            <Text style={styles.value}>{scanData.vehicle}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>ROUTE:</Text>
-            <Text style={styles.value}>{scanData.route}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>TRUST SCORE:</Text>
-            <Text style={{color: '#0f0', fontWeight: 'bold'}}>100% (Green Channel)</Text>
-          </View>
+          <View style={styles.infoRow}><Text style={styles.label}>DRIVER:</Text><Text style={styles.value}>{scanData.driver}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.label}>VEHICLE:</Text><Text style={styles.value}>{scanData.vehicle}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.label}>ROUTE:</Text><Text style={styles.value}>{scanData.route}</Text></View>
           
           <TouchableOpacity onPress={() => { setScanned(false); setScanData(null); }} style={styles.scanBtn}>
             <Text style={styles.btnText}>SCAN NEXT TRUCK</Text>
@@ -111,7 +85,6 @@ export default function App() {
         </View>
       )}
 
-      {/* RE-SCAN BUTTON */}
       {scanned && !scanData && !loading && (
          <Button title="Tap to Scan Again" color="#FF6600" onPress={() => setScanned(false)} />
       )}
@@ -120,7 +93,7 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000', paddingTop: 20, alignItems: 'center', justifyContent: 'center' },
+  container: { flex: 1, backgroundColor: '#000', paddingTop: 40, alignItems: 'center', justifyContent: 'center' },
   header: { alignItems: 'center', marginBottom: 20 },
   headerTitle: { color: '#fff', fontSize: 24, fontWeight: '900', fontStyle: 'italic' },
   headerSub: { color: '#FF6600', fontSize: 12, letterSpacing: 2, marginTop: 5 },
