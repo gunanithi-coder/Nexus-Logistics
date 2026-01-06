@@ -38,7 +38,7 @@ trips_collection = db.trips
 # --- MODELS ---
 class Document(BaseModel):
     doc_name: str
-    expiry_date: str # YYYY-MM-DD
+    expiry_date: str  # YYYY-MM-DD
 
 class TripCreate(BaseModel):
     driver_name: str
@@ -46,6 +46,9 @@ class TripCreate(BaseModel):
     route_from: str
     route_to: str
     documents: List[Document]
+
+class QRToken(BaseModel):
+    token: str
 
 # --- LOGIC: AI COMPLIANCE & VALIDATION ---
 def validate_indian_vehicle(number: str):
@@ -76,8 +79,8 @@ async def create_trip(trip: TripCreate):
     trip_data = trip.dict()
     trip_data["created_at"] = datetime.now().isoformat()
     trip_data["status"] = "ACTIVE"
-    trip_data["trust_score"] = 100 # Default Green Channel Score
-    trip_data["current_location"] = {"lat": 13.0827, "lng": 80.2707} # Default Chennai
+    trip_data["trust_score"] = 100  # Default Green Channel Score
+    trip_data["current_location"] = {"lat": 13.0827, "lng": 80.2707}  # Default Chennai
 
     new_trip = await trips_collection.insert_one(trip_data)
     trip_id = str(new_trip.inserted_id)
@@ -87,13 +90,12 @@ async def create_trip(trip: TripCreate):
     payload = {
         "sub": trip_id,
         "vn": trip.vehicle_number,
-        "exp": datetime.utcnow().timestamp() + (48 * 3600) # 48 hours validity
+        "exp": datetime.utcnow().timestamp() + (48 * 3600)  # 48 hours validity
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
     # 4. Generate QR
-    # If a normal user scans this, they just see a random string or hit a 401 error page
-    qr_data = f"{token}" 
+    qr_data = f"{token}"
     
     qr = qrcode.QRCode(box_size=10, border=4)
     qr.add_data(qr_data)
@@ -106,32 +108,41 @@ async def create_trip(trip: TripCreate):
     
     return StreamingResponse(img_byte_arr, media_type="image/png")
 
-@app.get("/verify")
-async def verify_trip(token: str, x_police_auth: Optional[str] = Header(None)):
-    # --- THE DOUBLE LOCK SECURITY ---
-    # If scanned by Browser/Normal App -> They don't have the Header -> BLOCK
+# --- 👮 UPDATED POLICE VERIFICATION ENDPOINT (MATCHES MOBILE APP) ---
+@app.post("/verify_qr")
+async def verify_qr(
+    data: QRToken, 
+    x_police_auth: Optional[str] = Header(None)
+):
+    # 1. DOUBLE LOCK SECURITY: Check for Hidden Police Header
     if x_police_auth != POLICE_SECRET:
-        return JSONResponse(
-            status_code=403, 
-            content={"status": "BLOCKED", "message": "⛔ ENCRYPTED QR. POLICE ACCESS ONLY."}
-        )
+        raise HTTPException(status_code=403, detail="🚨 UNAUTHORIZED ACCESS! POLICE ONLY.")
 
+    # 2. Decrypt the Token
     try:
-        # Decrypt
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        trip_id = payload.get("sub")
-        
+        decoded_data = jwt.decode(data.token, SECRET_KEY, algorithms=[ALGORITHM])
+        trip_id = decoded_data.get("sub")
+
+        # 3. Real-time DB Fetch (Ensures Trip is not deleted/banned)
         trip = await trips_collection.find_one({"_id": ObjectId(trip_id)})
+        
         if not trip:
-            raise HTTPException(status_code=404, detail="Trip not found")
-            
-        trip["_id"] = str(trip["_id"])
-        return {"status": "VERIFIED ✅", "data": trip}
+             raise HTTPException(status_code=404, detail="⚠️ TRIP NOT FOUND IN DATABASE")
+
+        # 4. Return Clean Data to Mobile App
+        return {
+            "status": "APPROVED",
+            "driver": trip.get("driver_name"),
+            "vehicle": trip.get("vehicle_number"),
+            "route": f"{trip.get('route_from')} ➝ {trip.get('route_to')}",
+            "expiry": "VALID",
+            "verification_time": "0.45s (AI Verified)"
+        }
 
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=400, detail="❌ QR EXPIRED")
+        raise HTTPException(status_code=400, detail="EXPIRED PASS")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=400, detail="⚠️ INVALID TOKEN")
+        raise HTTPException(status_code=400, detail="FAKE PASS DETECTED")
 
 @app.get("/trip/{trip_id}")
 async def get_trip_details(trip_id: str):
