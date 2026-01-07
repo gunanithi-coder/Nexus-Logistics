@@ -2,35 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 🚀 DYNAMIC NEBULA BACKGROUND */
+/* 🌌 1. THE MOVING "TRON" BACKGROUND */
 body {
   margin: 0;
   min-height: 100vh;
-  width: 100%;
-  font-family: system-ui, -apple-system, sans-serif;
-  color: white;
+  background-color: #050505; /* Deep Black */
   
-  /* The Moving Gradient Colors: Deep Purple, Navy, and Black */
-  background: linear-gradient(-45deg, #000000, #1a0b2e, #110f33, #000000);
-  background-size: 400% 400%;
-  animation: gradientBG 10s ease infinite;
+  /* The Grid Pattern */
+  background-image: 
+    linear-gradient(rgba(255, 102, 0, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 102, 0, 0.1) 1px, transparent 1px);
+  background-size: 50px 50px;
+  
+  /* The Animation: Moves the grid downwards forever */
+  animation: cyberGrid 2s linear infinite;
+  
+  /* Font Family from Step 1 */
+  font-family: 'Rajdhani', sans-serif;
+  color: white;
+  overflow-x: hidden;
 }
 
-/* 🎬 The Animation Keyframes */
-@keyframes gradientBG {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+@keyframes cyberGrid {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 50px; }
 }
 
-/* ✨ Make sure inputs are readable */
+/* 📺 2. CRT SCANLINE OVERLAY (CCTV EFFECT) */
+body::after {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  background-size: 100% 2px, 3px 100%;
+  pointer-events: none; /* Click through it */
+  z-index: 9999;
+}
+
+/* 📱 3. GLOWING INPUT FIELDS */
 input {
-  background: rgba(16, 0, 243, 0.05);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #fff !important;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+}
+
+/* When you click an input, it GLOWS ORANGE */
+input:focus {
+  border-color: #FF6600 !important;
+  box-shadow: 0 0 15px rgba(255, 102, 0, 0.5);
+  transform: scale(1.02);
+}
+
+/* ✨ 4. NEON BUTTONS */
+button {
+  font-family: 'Rajdhani', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  transition: all 0.3s ease;
+}
+
+button:hover {
+  text-shadow: 0 0 8px white;
+  box-shadow: 0 0 20px rgba(255, 102, 0, 0.6);
+}
+
+/* 🧊 5. GLASS PANELS */
+.bg-gray-900\/50, .bg-black\/40 {
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+}
+
+/* React Root Fix (Keeps layout centered) */
+#root {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
