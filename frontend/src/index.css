@@ -31,6 +31,6 @@ body {
 
 /* ✨ Make sure inputs are readable */
 input {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(16, 0, 243, 0.05);
   backdrop-filter: blur(10px);
 }

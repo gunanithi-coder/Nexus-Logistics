@@ -1,272 +1,251 @@
 import React, { useState } from 'react';
 import { createTrip } from '../api';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, Truck, Zap, Camera, Upload, Phone, MessageSquare, Download } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { Truck, MapPin, User, Phone, FileText, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 
-// We accept 'onRouteSearch' to tell the Map where to go
 const TripForm = ({ onRouteSearch }) => {
-  const [qrImage, setQrImage] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [showToast, setShowToast] = useState(false); // SMS Popup State
-  
   const [formData, setFormData] = useState({
     driver_name: '',
-    driver_phone: '', // 📱 Critical for Police App "Call" button
+    driver_phone: '',
     vehicle_number: '',
     route_from: '',
     route_to: '',
-    driver_photo: '', // 📸 Critical for Police App ID Check
-    documents: [
-      { doc_name: "RC", expiry_date: "2030-01-01" },
-      { doc_name: "PUC", expiry_date: "2026-12-30" }
-    ]
+    documents: {
+      rc_book: null,
+      insurance: null,
+      puc_cert: null,
+      permit: null
+    }
   });
 
-  // 📸 Convert Image to Base64 String
-  const handleImageUpload = (e) => {
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [qrImage, setQrImage] = useState(null);
+
+  // Helper: Convert File to Base64
+  const convertToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  const handleFileChange = async (e, docName) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, driver_photo: reader.result });
-      };
-      reader.readAsDataURL(file);
+      const base64 = await convertToBase64(file);
+      setFormData(prev => ({
+        ...prev,
+        documents: { ...prev.documents, [docName]: base64 }
+      }));
+      if (errors.documents) setErrors(prev => ({ ...prev, documents: null }));
     }
   };
 
-  // 📄 DOWNLOAD PDF FUNCTION
-  const handleDownloadPDF = () => {
-    const input = document.getElementById('gatepass-ticket'); // We grab the specific ticket ID
+  const handleChange = (e) => {
+    let { name, value } = e.target;
+
+    // 🧠 SMART INPUT LOGIC 🧠
     
-    // 1. Capture the Ticket Element
-    html2canvas(input, { scale: 2, backgroundColor: '#111' }).then((canvas) => {
-      const imgData = canvas.toDataURL('image/png');
-      
-      // 2. Create PDF
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      
-      // 3. Save
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`Nexus_GatePass_${formData.vehicle_number}.pdf`);
-    });
+    // 1. Phone: Enforce Numbers Only & Max 10 Digits
+    if (name === 'driver_phone') {
+        value = value.replace(/\D/g, '').slice(0, 10);
+    }
+
+    // 2. Vehicle: SMART FORMATTER (TN-01-BC-1234)
+    if (name === 'vehicle_number') {
+        // Remove special chars first to get raw data
+        let clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        
+        // Prevent typing more than allowed (Max 10 chars raw = TN01BC1234)
+        if (clean.length > 10) clean = clean.slice(0, 10);
+
+        // Auto-Insert Dashes
+        let formatted = clean;
+        if (clean.length > 2) {
+            formatted = `${clean.slice(0, 2)}-${clean.slice(2)}`;
+        }
+        if (clean.length > 4) {
+             formatted = `${clean.slice(0, 2)}-${clean.slice(2, 4)}-${clean.slice(4)}`;
+        }
+        if (clean.length > 6) {
+             // Handle 1 or 2 letter series (TN-01-A-1234 vs TN-01-AB-1234)
+             // We assume series ends when numbers begin
+             const match = clean.match(/^([A-Z]{2})([0-9]{2})([A-Z]{1,2})([0-9]{0,4})$/);
+             if (match) {
+                 formatted = `${match[1]}-${match[2]}-${match[3]}-${match[4]}`;
+             }
+        }
+        
+        value = formatted;
+    }
+
+    setFormData({ ...formData, [name]: value });
+
+    // Clear error as user types
+    if (errors[name]) {
+      setErrors({ ...errors, [name]: null });
+    }
+  };
+
+  // 🛡️ VALIDATION LOGIC
+  const validateForm = () => {
+    let newErrors = {};
+    let isValid = true;
+
+    // Phone Check
+    if (formData.driver_phone.length !== 10) {
+      newErrors.driver_phone = "Phone must be exactly 10 digits.";
+      isValid = false;
+    }
+
+    // Vehicle Format Check
+    // Matches: TN-01-A-1234 OR TN-01-AB-1234
+    const vehicleRegex = /^[A-Z]{2}-[0-9]{2}-[A-Z]{1,2}-[0-9]{4}$/;
+    if (!vehicleRegex.test(formData.vehicle_number)) {
+      newErrors.vehicle_number = "Invalid! Format: TN-01-AB-1234";
+      isValid = false;
+    }
+
+    // Document Check
+    if (!formData.documents.rc_book) {
+      newErrors.documents = "RC Book Proof is Mandatory!";
+      isValid = false;
+    }
+
+    setErrors(newErrors);
+    return isValid;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!validateForm()) return; 
+
     setLoading(true);
-    
-    // 1. Validation Logic
-    const vehicleRegex = /^[A-Z]{2}[ -]?[0-9]{2}[ -]?[A-Z]{1,2}[ -]?[0-9]{4}$/;
-    if (!vehicleRegex.test(formData.vehicle_number.toUpperCase())) {
-      alert("⛔ Invalid Format! Use: TN-01-AB-1234");
-      setLoading(false);
-      return;
-    }
-    if (formData.driver_phone.length < 10) {
-      alert("⛔ Invalid Phone Number! Need 10 digits.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      // 2. Send Data to Backend
-      const img = await createTrip(formData);
-      setQrImage(img);
-      
-      // 3. Show "SMS Sent" Simulation
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 5000);
-
-      // 4. Update the Map Route
+      const qrCode = await createTrip(formData);
+      setQrImage(qrCode);
       if (onRouteSearch) {
-         onRouteSearch(formData.route_from, formData.route_to);
+        onRouteSearch(formData.route_from, formData.route_to);
       }
-
-    } catch (err) {
-      alert("⚠️ Backend Error! Check Port 8000 connection.");
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error("Pass Error:", error);
+      alert("System Error: Ensure Backend is Running!");
     }
-  };
-
-  const bgVariant = {
-    animate: {
-      backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
-      transition: { duration: 15, ease: "linear", repeat: Infinity }
-    }
+    setLoading(false);
   };
 
   return (
-    <motion.div 
-      variants={bgVariant}
-      animate="animate"
-      className="min-h-screen w-full flex items-center justify-center p-4 bg-transparent"
-    >
-      {/* 🔔 SMS TOAST NOTIFICATION */}
-      <AnimatePresence>
-        {showToast && (
-          <motion.div 
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -50 }}
-            className="fixed top-10 z-50 bg-green-500/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-[0_0_20px_rgba(34,197,94,0.5)] flex items-center gap-3 font-bold"
-          >
-            <MessageSquare size={20} className="fill-white text-green-600" />
-            <span>SMS SENT: Driver Notified!</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="w-full">
+      {!qrImage ? (
+        <form onSubmit={handleSubmit} className="space-y-6">
+          
+          <div className="flex items-center gap-3 mb-6">
+            <Truck className="text-[#FF6600]" size={28} />
+            <h2 className="text-2xl font-black text-white italic tracking-wider">NEW GATEPASS</h2>
+          </div>
 
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="relative bg-black/40 backdrop-blur-2xl p-8 rounded-[2rem] border-2 border-white/10 shadow-[0_0_50px_rgba(255,102,0,0.3)] max-w-md w-full text-center overflow-hidden"
-      >
-        {/* Glow Effect */}
-        <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle,rgba(255,102,0,0.15)_0%,transparent_70%)] pointer-events-none animate-pulse-slow"></div>
-
-        {/* Header */}
-        <div className="relative z-10 flex flex-col items-center mb-6">
-          <motion.div 
-            animate={{ rotate: [0, 5, -5, 0] }}
-            transition={{ duration: 4, repeat: Infinity }}
-            className="bg-gradient-to-br from-[#FF6600] to-[#ff3300] p-4 rounded-2xl mb-4 shadow-lg shadow-orange-500/30"
-          >
-            <ShieldCheck size={40} className="text-white" />
-          </motion.div>
-          <h1 className="text-3xl font-black text-white italic tracking-tighter">
-             NEXUS <span className="text-[#FF6600]">GATEPASS</span>
-          </h1>
-          <p className="text-orange-300/80 text-xs mt-2 font-mono uppercase tracking-widest flex items-center justify-center gap-2">
-            <Zap size={12} /> National Logistics Grid 🌐
-          </p>
-        </div>
-
-        {!qrImage ? (
-          <form onSubmit={handleSubmit} className="relative z-10 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             
-            {/* 📸 PHOTO UPLOAD */}
-            <div className="flex justify-center mb-2">
-              <label className="cursor-pointer group relative">
-                <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                <div className={`w-24 h-24 rounded-full border-2 border-dashed flex items-center justify-center overflow-hidden transition-all ${formData.driver_photo ? 'border-[#FF6600]' : 'border-gray-500 hover:border-white'}`}>
-                  {formData.driver_photo ? (
-                    <img src={formData.driver_photo} alt="Preview" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="text-gray-400 flex flex-col items-center gap-1 group-hover:text-white">
-                      <Camera size={20} />
-                      <span className="text-[10px]">PHOTO</span>
-                    </div>
-                  )}
-                </div>
-                {!formData.driver_photo && (
-                   <div className="absolute -bottom-2 -right-2 bg-[#FF6600] p-1.5 rounded-full text-white shadow-lg">
-                     <Upload size={12} />
-                   </div>
-                )}
-              </label>
+            {/* DRIVER NAME */}
+            <div className="bg-black/40 p-3 rounded-xl border border-white/10 flex items-center gap-3">
+              <User size={18} className="text-gray-400" />
+              <input name="driver_name" placeholder="Driver Name" onChange={handleChange} required className="bg-transparent outline-none text-white w-full placeholder-gray-600 font-bold" />
             </div>
 
-            <div className="space-y-3">
-                {/* NAME INPUT */}
-                <motion.div whileFocus={{ scale: 1.02 }} className="relative group">
-                    <span className="absolute left-4 top-4 text-xl grayscale group-focus-within:grayscale-0 transition-all">🧑‍✈️</span>
-                    <input className="w-full p-4 pl-12 bg-white/5 rounded-xl border border-white/10 text-white focus:border-[#FF6600] focus:bg-white/10 outline-none transition-all placeholder:text-gray-500" placeholder="Driver Full Name" onChange={e => setFormData({...formData, driver_name: e.target.value})} required />
-                </motion.div>
-
-                {/* 📱 PHONE INPUT */}
-                <motion.div whileFocus={{ scale: 1.02 }} className="relative group">
-                    <span className="absolute left-4 top-4 text-xl grayscale group-focus-within:grayscale-0 transition-all">📱</span>
-                    <input type="tel" maxLength="10" className="w-full p-4 pl-12 bg-white/5 rounded-xl border border-white/10 text-white focus:border-[#FF6600] focus:bg-white/10 outline-none transition-all placeholder:text-gray-500" placeholder="Driver Mobile (10 digits)" onChange={e => setFormData({...formData, driver_phone: e.target.value})} required />
-                </motion.div>
-
-                {/* VEHICLE INPUT */}
-                <motion.div whileFocus={{ scale: 1.02 }} className="relative group">
-                    <span className="absolute left-4 top-4 text-xl grayscale group-focus-within:grayscale-0 transition-all">🚛</span>
-                    <input className="w-full p-4 pl-12 bg-white/5 rounded-xl border border-white/10 text-[#FF6600] font-bold focus:border-[#FF6600] focus:bg-white/10 outline-none transition-all uppercase placeholder:text-gray-500 placeholder:font-normal" placeholder="Vehicle No. (TN-01-AB-1234)" onChange={e => setFormData({...formData, vehicle_number: e.target.value})} required />
-                </motion.div>
-                
-                <div className="flex gap-3">
-                   {/* ROUTE INPUTS */}
-                   <motion.div whileFocus={{ scale: 1.02 }} className="relative w-1/2 group">
-                     <span className="absolute left-3 top-3.5 text-lg grayscale group-focus-within:grayscale-0 transition-all">📍</span>
-                     <input className="w-full p-3 pl-10 bg-white/5 rounded-xl border border-white/10 text-white text-sm focus:border-[#FF6600] focus:bg-white/10 outline-none transition-all" placeholder="From City" onChange={e => setFormData({...formData, route_from: e.target.value})} required />
-                   </motion.div>
-                   <motion.div whileFocus={{ scale: 1.02 }} className="relative w-1/2 group">
-                     <span className="absolute left-3 top-3.5 text-lg grayscale group-focus-within:grayscale-0 transition-all">🎯</span>
-                     <input className="w-full p-3 pl-10 bg-white/5 rounded-xl border border-white/10 text-white text-sm focus:border-[#FF6600] focus:bg-white/10 outline-none transition-all" placeholder="To City" onChange={e => setFormData({...formData, route_to: e.target.value})} required />
-                   </motion.div>
-                </div>
+            {/* PHONE */}
+            <div className={`bg-black/40 p-3 rounded-xl border flex items-center gap-3 ${errors.driver_phone ? 'border-red-500' : 'border-white/10'}`}>
+                <Phone size={18} className={errors.driver_phone ? "text-red-500" : "text-gray-400"} />
+                <input 
+                  name="driver_phone" 
+                  value={formData.driver_phone}
+                  placeholder="Phone (10 Digits)" 
+                  onChange={handleChange} 
+                  className="bg-transparent outline-none text-white w-full placeholder-gray-600 font-bold" 
+                />
             </div>
 
-            <motion.button 
-              disabled={loading}
-              whileHover={{ scale: 1.03 }} 
-              whileTap={{ scale: 0.97 }} 
-              className="w-full py-4 bg-gradient-to-r from-[#FF6600] via-[#ff4500] to-[#ff3300] text-white font-black rounded-xl shadow-lg flex items-center justify-center gap-3 relative overflow-hidden group"
-            >
-              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-              <span className="relative z-10 flex items-center gap-2">
-                  {loading ? "⚡ VALIDATING..." : <><Truck size={22} /> GENERATE SECURE PASS ✨</>}
-              </span>
-            </motion.button>
-          </form>
-        ) : (
-          // ✅ TICKET VIEW (Wrapped in ID for PDF Capture)
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            className="relative z-10 text-center w-full"
-          >
-            {/* THIS DIV WILL BE CAPTURED AS PDF */}
-            <div id="gatepass-ticket" className="p-4 bg-black/50 rounded-2xl mb-4 border border-white/10">
-              <h2 className="text-xl font-black text-white italic mb-2">
-                🎉 OFFICIAL GATEPASS
-              </h2>
-              <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest border-b border-gray-700 pb-2">
-                 {formData.vehicle_number} • {formData.driver_name}
-              </p>
-              
-              <div className="bg-white p-2 rounded-2xl inline-block mb-2 shadow-2xl">
-                {/* ✅ FIXED IMAGE TAG */}
-                <img 
-                  src={`data:image/png;base64,${qrImage}`} 
-                  alt="Generated QR Code" 
-                  className="border-4 border-white shadow-lg"
-                  style={{ width: '150px', height: '150px', objectFit: 'contain' }} 
-                />              
+            {/* VEHICLE NO (With Auto-Formatting) */}
+            <div className={`bg-black/40 p-3 rounded-xl border flex items-center gap-3 ${errors.vehicle_number ? 'border-red-500' : 'border-white/10'}`}>
+                <Truck size={18} className={errors.vehicle_number ? "text-red-500" : "text-gray-400"} />
+                <input 
+                  name="vehicle_number" 
+                  value={formData.vehicle_number}
+                  placeholder="TN-01-AB-1234" 
+                  onChange={handleChange} 
+                  // Limits user to typing roughly the correct length
+                  maxLength={13} 
+                  className="bg-transparent outline-none text-white w-full placeholder-gray-600 font-bold uppercase" 
+                />
+            </div>
+
+            {/* ROUTE */}
+            <div className="bg-black/40 p-3 rounded-xl border border-white/10 flex items-center gap-3">
+              <MapPin size={18} className="text-gray-400" />
+              <div className="flex gap-2 w-full">
+                <input name="route_from" placeholder="From City" onChange={handleChange} required className="bg-transparent outline-none text-white w-1/2 placeholder-gray-600 font-bold uppercase" />
+                <span className="text-gray-600">➝</span>
+                <input name="route_to" placeholder="To City" onChange={handleChange} required className="bg-transparent outline-none text-white w-1/2 placeholder-gray-600 font-bold uppercase" />
               </div>
-
-              <p className="text-[#FF6600] font-bold mt-1 flex items-center justify-center gap-2">
-                <ShieldCheck size={16} /> Verified & Secure
-              </p>
             </div>
+          </div>
 
-            {/* ACTION BUTTONS */}
-            <div className="flex flex-col gap-3">
-              <button 
-                onClick={handleDownloadPDF} 
-                className="w-full py-3 bg-white text-black font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors"
-              >
-                <Download size={18} /> DOWNLOAD PDF
-              </button>
+          {/* Errors */}
+          {(errors.driver_phone || errors.vehicle_number) && (
+             <div className="bg-red-500/20 border border-red-500 p-3 rounded-lg flex items-center gap-2 text-red-400 text-xs font-bold">
+                <AlertCircle size={16} />
+                <span>Fix Errors: {errors.driver_phone || errors.vehicle_number}</span>
+             </div>
+          )}
 
-              <button 
-                onClick={() => setQrImage(null)} 
-                className="text-sm text-white/60 hover:text-[#FF6600] transition-colors underline flex items-center justify-center gap-1"
-              >
-                🔄 Create Another Pass
-              </button>
+          {/* DOCUMENT UPLOAD */}
+          <div className="border-t border-white/10 pt-4">
+            <h3 className="text-[#FF6600] text-sm font-bold mb-3 flex items-center gap-2">
+              <FileText size={16} /> DIGITAL DOCUMENT UPLOAD
+            </h3>
+            
+            <div className="grid grid-cols-2 gap-3">
+              {['rc_book', 'insurance', 'puc_cert', 'permit'].map((doc) => (
+                <div key={doc} className="relative">
+                  <input type="file" id={doc} className="hidden" accept="image/*,.pdf" onChange={(e) => handleFileChange(e, doc)} />
+                  <label htmlFor={doc} className={`flex items-center justify-center gap-2 py-3 rounded-lg border cursor-pointer transition-all ${formData.documents[doc] ? 'bg-green-500/20 border-green-500 text-green-400' : 'bg-white/5 border-dashed border-gray-600 hover:bg-white/10 text-gray-400'}`}>
+                    {formData.documents[doc] ? <CheckCircle size={16} /> : <Upload size={16} />}
+                    <span className="text-xs font-bold uppercase">{doc.replace('_', ' ')}</span>
+                  </label>
+                </div>
+              ))}
             </div>
             
-          </motion.div>
-        )}
-      </motion.div>
-    </motion.div>
+            {errors.documents && (
+              <p className="text-red-500 text-center text-xs mt-3 font-bold animate-pulse">
+                 ⚠️ {errors.documents}
+              </p>
+            )}
+          </div>
+
+          <button type="submit" disabled={loading} className="w-full bg-[#FF6600] hover:bg-[#ff8533] text-white py-4 rounded-xl font-black tracking-widest transition-all shadow-lg flex justify-center items-center gap-2">
+            {loading ? "VALIDATING..." : "GENERATE SECURE PASS ✨"}
+          </button>
+
+        </form>
+      ) : (
+        <div className="text-center animate-fade-in">
+          <div className="bg-green-500/20 border border-green-500/50 p-4 rounded-xl mb-6 inline-flex items-center gap-2">
+            <CheckCircle className="text-green-500" />
+            <span className="text-green-400 font-bold">OFFICIAL GATEPASS GENERATED</span>
+          </div>
+          <div className="bg-white p-4 rounded-xl inline-block shadow-[0_0_30px_rgba(255,255,255,0.2)]">
+            <img src={`data:image/png;base64,${qrImage}`} alt="QR Code" className="w-48 h-48 object-contain" />
+          </div>
+          <div className="mt-6 space-y-3">
+            <button onClick={() => setQrImage(null)} className="w-full border border-white/20 text-gray-400 font-bold py-3 rounded-xl hover:bg-white/5">
+              CREATE ANOTHER PASS
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
